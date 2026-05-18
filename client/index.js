@@ -17,7 +17,7 @@ const mcpClient = new Client({ // yaha hum mcp client setup kar rhe hain
 })
 
 const chatHistory = [] // is array ke andar chathistory dal rhe hain 
-
+let toolCallCount = 0
 const rl = readline.createInterface({  // ye user se terminal main input/output lene ke liye use kiya jaa rha hain 
     input: process.stdin,
     output: process.stdout
@@ -41,11 +41,11 @@ mcpClient.connect( // ye mcp client ko mcp server se connect krne ke liye use ho
         return {
             name: tool.name,
             description: tool.description,
-            parameters: {
-                type: tool.inputSchema.type,
-                properties: tool.inputSchema.properties,
-                required: tool.inputSchema.required
-            }
+           parameters: {
+    type: "object",
+    properties: tool.inputSchema.properties || {},
+    required: tool.inputSchema.required || []
+}
         }
     })
 
@@ -63,47 +63,55 @@ async function chatLoop(toolCall) {
 
     try {
 
-        // If AI requested tool
-        if (toolCall) {
+    
+if (toolCall) {
 
-            console.log('Calling Tool:', toolCall.function.name)
+    toolCallCount++
 
-            // Store assistant tool call
-            chatHistory.push({
-                role: 'assistant',
-                tool_calls: [toolCall]
-            })
+    if(toolCallCount > 3){
 
-            // Execute MCP Tool
-            const toolResult = await mcpClient.callTool({
-                name: toolCall.function.name,
-                arguments: JSON.parse(toolCall.function.arguments)
-            })
+        console.log("AI: Tool call limit reached")
 
-            // Store tool result
-            chatHistory.push({
-                role: 'tool',
-                tool_call_id: toolCall.id,
-                content: toolResult.content[0].text
-            })
+        toolCallCount = 0
 
-        }
+        return chatLoop()
+    }
+
+    console.log('Calling Tool:',
+    toolCall.function.name)
+
+    chatHistory.push({
+        role: 'assistant',
+        tool_calls: [toolCall]
+    })
+
+    const toolResult =
+    await mcpClient.callTool({
+        name: toolCall.function.name,
+        arguments:
+        JSON.parse(toolCall.function.arguments)
+    })
+
+    chatHistory.push({
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        content: toolResult.content[0].text
+    })
+}
         else {
 
-            // User input
+          
             const question = await rl.question('You: ')
-
-            // Store user message
             chatHistory.push({
                 role: 'user',
                 content: question
             })
         }
 
-        // Send request to Groq
+       
         const response = await groq.chat.completions.create({
 
-            model: 'llama-3.3-70b-versatile',
+model: "qwen/qwen3-32b",
 
             messages: chatHistory.slice(-10),
 
@@ -115,28 +123,26 @@ async function chatLoop(toolCall) {
             tool_choice: 'auto'
         })
 
-        // Extract tool call
-        const functionCall =
-            response.choices[0].message.tool_calls?.[0]
+    
+        const functionCall =response.choices[0].message.tool_calls?.[0]
 
-        // Extract text response
         const responseText =
             response.choices[0].message.content
 
-        // If AI wants tool
+       
         if (functionCall) {
+            console.log(functionCall)
             return chatLoop(functionCall)
         }
 
-        // Store final AI response
+   
         chatHistory.push({
             role: 'assistant',
             content: responseText
         })
 
-        // Print final answer
         console.log(`AI: ${responseText}`)
-
+        toolCallCount = 0
         return chatLoop()
 
     }
