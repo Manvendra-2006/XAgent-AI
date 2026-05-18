@@ -59,52 +59,53 @@ mcpClient.connect( // ye mcp client ko mcp server se connect krne ke liye use ho
     console.log('MCP Connection Error:', error)
 })
 
-
 async function chatLoop(toolCall) {
 
     try {
 
-      
-        if (toolCall) { // ye kab chlega jab ai tool ko request kre 
+        // If AI requested tool
+        if (toolCall) {
 
             console.log('Calling Tool:', toolCall.function.name)
 
-            
-            chatHistory.push({ // ye chat ai ne jab tool ki request kri hogi uska chat hsitory main save hoga 
+            // Store assistant tool call
+            chatHistory.push({
                 role: 'assistant',
-                content: `Calling tool ${toolCall.function.name}`
+                tool_calls: [toolCall]
             })
 
-         
-            const toolResult = await mcpClient.callTool({ // yaha mcp cleint tool ko call krega jo ai ne bola hain 
+            // Execute MCP Tool
+            const toolResult = await mcpClient.callTool({
                 name: toolCall.function.name,
                 arguments: JSON.parse(toolCall.function.arguments)
             })
 
-         
-            chatHistory.push({ // store tool result in chathistory
-                role: 'user',
-                content: `Tool Result: ${toolResult.content[0].text}`
+            // Store tool result
+            chatHistory.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: toolResult.content[0].text
             })
 
         }
         else {
 
-           
-            const question = await rl.question('You: ') // user se input 
+            // User input
+            const question = await rl.question('You: ')
 
-            
-            chatHistory.push({ // user ki chat store 
+            // Store user message
+            chatHistory.push({
                 role: 'user',
                 content: question
             })
         }
-      
-        const response = await groq.chat.completions.create({ // yaha request send hogi grok ko 
+
+        // Send request to Groq
+        const response = await groq.chat.completions.create({
 
             model: 'llama-3.3-70b-versatile',
 
-            messages: chatHistory,
+            messages: chatHistory.slice(-10),
 
             tools: tools.map(tool => ({
                 type: 'function',
@@ -114,28 +115,35 @@ async function chatLoop(toolCall) {
             tool_choice: 'auto'
         })
 
+        // Extract tool call
+        const functionCall =
+            response.choices[0].message.tool_calls?.[0]
 
-      
-        const functionCall = response.choices[0].message.tool_calls?.[0] // toolcall extract
-        const responseText = response.choices[0].message.content // extract text 
+        // Extract text response
+        const responseText =
+            response.choices[0].message.content
 
-
-        if (functionCall) {  
+        // If AI wants tool
+        if (functionCall) {
             return chatLoop(functionCall)
         }
+
+        // Store final AI response
         chatHistory.push({
             role: 'assistant',
             content: responseText
         })
-        // Print final response
+
+        // Print final answer
         console.log(`AI: ${responseText}`)
-        chatLoop()
+
+        return chatLoop()
 
     }
     catch (error) {
 
-        console.log('Error:', error)
+        console.log('Error:', error.message)
 
-        chatLoop()
+        return chatLoop()
     }
 }
